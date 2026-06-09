@@ -2,7 +2,7 @@
 name = "opaque-scanner"
 version = "0.1.1"
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 description = "Opaque Cash stealth-address (DKSAP) scanner: EIP-5564 view-tag scanning, V1/V2 reputation attestations, and Merkle witness helpers. Compiles to WASM."
 repository = "https://github.com/opaquecash/scanner"
 homepage = "https://opaque.cash"
