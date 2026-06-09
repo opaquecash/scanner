@@ -1,0 +1,33 @@
+[package]
+name = "opaque-scanner"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Opaque Cash stealth-address (DKSAP) scanner: EIP-5564 view-tag scanning, V1/V2 reputation attestations, and Merkle witness helpers. Compiles to WASM."
+repository = "https://github.com/opaquecash/scanner"
+homepage = "https://opaque.cash"
+keywords = ["stealth-address", "eip5564", "privacy", "zk", "wasm"]
+categories = ["cryptography", "wasm"]
+readme = "README.md"
+
+[lib]
+# Keep the lib name "cryptography" so wasm-pack emits cryptography_bg.wasm /
+# cryptography.js, matching what both frontends already import from public/pkg.
+name = "cryptography"
+crate-type = ["cdylib", "rlib"]
+
+[workspace]
+
+[dependencies]
+k256 = { version = "0.13", features = ["ecdh", "arithmetic"] }
+sha3 = "0.10"
+sha2 = "0.10"
+alloy-primitives = "1.5"
+wasm-bindgen = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+serde_json = "1.0"
+console_error_panic_hook = "0.1"
+getrandom = { version = "0.2", features = ["js"] }
+js-sys = "0.3"
+hex = "0.4"
