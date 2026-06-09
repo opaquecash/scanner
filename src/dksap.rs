@@ -6,9 +6,8 @@
 //! the shared, chain-neutral surface; [`ChainAdapter`] captures the per-chain part so
 //! the scan loop can be written once.
 //!
-//! Phase 0 (Execution Plan Task 0.4) establishes this trait and re-exports the shared
-//! core. Concrete adapters (`EthereumAdapter`, `SolanaAdapter`) are added in Phase 2
-//! (Tasks 2.1 / 2.2); none are defined here yet.
+//! This module re-exports the shared core and defines [`ChainAdapter`]. Concrete
+//! adapters (`EthereumAdapter`, `SolanaAdapter`) are not defined here yet.
 
 // Shared, chain-neutral core. Re-exported here so consumers depend on a single
 // `dksap` surface rather than reaching into individual modules.
@@ -38,8 +37,7 @@ pub struct Announcement {
 ///
 /// The universal scanner iterates over a set of adapters, calls
 /// [`ChainAdapter::fetch_announcements`], then runs the shared view-tag filter and
-/// DKSAP recovery on the returned [`Announcement`]s. Concrete implementations are
-/// Phase 2 work (Execution Plan Tasks 2.1 / 2.2).
+/// DKSAP recovery on the returned [`Announcement`]s.
 pub trait ChainAdapter {
     /// Adapter-specific error type.
     type Error: core::fmt::Debug;
