@@ -1,6 +1,6 @@
 [package]
 name = "opaque-scanner"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT"
 description = "Opaque Cash stealth-address (DKSAP) scanner: EIP-5564 view-tag scanning, V1/V2 reputation attestations, and Merkle witness helpers. Compiles to WASM."
