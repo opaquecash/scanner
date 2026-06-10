@@ -192,10 +192,8 @@ pub fn reconstruct_signing_key_wasm(
 use attestation::{
     scan_for_attestations,
     scan_for_attestations_v2,
-    RawAnnouncement, StealthAttestation as AttestationRecord,
-    SchemaInfo, V2StealthAttestation,
+    RawAnnouncement, SchemaInfo,
 };
-use merkle::{MerkleTree, CircuitWitness};
 
 /// Scans announcement metadata for attestation markers.
 ///
@@ -253,83 +251,6 @@ pub fn scan_attestations_wasm(
 
     serde_json::to_string(&results)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
-}
-
-/// Generates the full ZK-circuit witness for a specific trait.
-///
-/// Builds a local Merkle tree from the given attestations, finds the first
-/// attestation matching `target_trait_id`, generates an inclusion proof,
-/// and returns a JSON witness compatible with the Circom circuit.
-///
-/// # Arguments
-/// * `attestations_json` - JSON array of `StealthAttestation` (from `scan_attestations_wasm`)
-/// * `target_trait_id` - The attestation_id to prove (as string decimal)
-/// * `stealth_privkey_bytes` - 32-byte stealth private key for the matching address
-/// * `external_nullifier` - Action-scoped nonce (as string decimal)
-///
-/// # Returns
-/// JSON `CircuitWitness` for the Circom prover.
-#[wasm_bindgen]
-pub fn generate_reputation_witness(
-    attestations_json: &str,
-    target_trait_id: &str,
-    stealth_privkey_bytes: &[u8],
-    external_nullifier: &str,
-) -> Result<String, JsValue> {
-    let attestations: Vec<AttestationRecord> = serde_json::from_str(attestations_json)
-        .map_err(|e| JsValue::from_str(&format!("Invalid attestations JSON: {}", e)))?;
-
-    let target_id: u64 = target_trait_id.parse()
-        .map_err(|e| JsValue::from_str(&format!("Invalid trait ID: {}", e)))?;
-
-    let ext_null: u64 = external_nullifier.parse()
-        .map_err(|e| JsValue::from_str(&format!("Invalid external nullifier: {}", e)))?;
-
-    // Build Merkle tree from all attestations (depth 20 = ~1M capacity)
-    let mut tree = MerkleTree::new(20);
-    let mut target_leaf_idx: Option<usize> = None;
-    let mut target_attestation: Option<&AttestationRecord> = None;
-
-    for att in &attestations {
-        let leaf_data = format!("{}:{}", att.stealth_address, att.attestation_id);
-        let idx = tree.insert_raw(leaf_data.as_bytes());
-        if att.attestation_id == target_id && target_leaf_idx.is_none() {
-            target_leaf_idx = Some(idx);
-            target_attestation = Some(att);
-        }
-    }
-
-    let leaf_idx = target_leaf_idx
-        .ok_or_else(|| JsValue::from_str("No attestation found matching target trait ID"))?;
-    let _target_att = target_attestation.unwrap();
-
-    let proof = tree.proof(leaf_idx);
-
-    if stealth_privkey_bytes.len() != 32 {
-        return Err(JsValue::from_str("Stealth private key must be 32 bytes"));
-    }
-
-    let privkey_hex = stealth_privkey_bytes
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect::<String>();
-    let privkey_decimal = u128::from_str_radix(&privkey_hex[..32], 16)
-        .map(|v| v.to_string())
-        .unwrap_or_else(|_| "0".to_string());
-
-    let witness = CircuitWitness {
-        merkle_root: bytes_to_decimal_string(&proof.root),
-        attestation_id: target_id.to_string(),
-        external_nullifier: ext_null.to_string(),
-        stealth_private_key: privkey_decimal,
-        ephemeral_pubkey: ["0".to_string(), "0".to_string()],
-        announcement_attestation_id: target_id.to_string(),
-        merkle_path_elements: proof.path_elements.iter().map(bytes_to_decimal_string).collect(),
-        merkle_path_indices: proof.path_indices,
-    };
-
-    serde_json::to_string(&witness)
-        .map_err(|e| JsValue::from_str(&format!("Serialize witness error: {}", e)))
 }
 
 /// Encodes attestation metadata for use in announcements.
@@ -470,93 +391,6 @@ pub fn scan_attestations_v2_wasm(
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }
 
-/// Generates a V2 ZK-circuit witness for a specific schema-bound trait.
-///
-/// The V2 witness uses the new 5-input leaf:
-///   Poseidon(stealth_pk, schema_id, issuer_pk_x, trait_data_hash, nonce)
-///
-/// # Arguments
-/// * `attestations_v2_json` - JSON array of V2StealthAttestation (from scan_attestations_v2_wasm)
-/// * `target_schema_id_hex` - The schema_id to prove (64-char hex)
-/// * `stealth_privkey_bytes` - 32-byte stealth private key (Uint8Array)
-/// * `trait_data_hash_hex` - Poseidon hash of the decoded data fields (64-char hex string)
-/// * `external_nullifier` - Action-scoped nonce as decimal string
-///
-/// # Returns
-/// JSON object with all circuit inputs (private + public) for snarkjs.fullProve.
-#[wasm_bindgen]
-pub fn generate_reputation_witness_v2(
-    attestations_v2_json: &str,
-    target_schema_id_hex: &str,
-    stealth_privkey_bytes: &[u8],
-    trait_data_hash_hex: &str,
-    external_nullifier: &str,
-) -> Result<String, JsValue> {
-    let attestations: Vec<V2StealthAttestation> = serde_json::from_str(attestations_v2_json)
-        .map_err(|e| JsValue::from_str(&format!("Invalid attestations JSON: {}", e)))?;
-
-    let target_id = target_schema_id_hex.trim_start_matches("0x").to_lowercase();
-
-    // Find the first attestation matching the target schema
-    let target_att = attestations
-        .iter()
-        .find(|a| a.schema_id.trim_start_matches("0x").to_lowercase() == target_id)
-        .ok_or_else(|| JsValue::from_str("No attestation found for target schema_id"))?;
-
-    if stealth_privkey_bytes.len() != 32 {
-        return Err(JsValue::from_str("Stealth private key must be 32 bytes"));
-    }
-
-    // Encode private key as hex field string for the circuit
-    let privkey_hex: String = stealth_privkey_bytes
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect();
-    let stealth_pk_field = format!("0x{}", privkey_hex);
-
-    // Build Merkle tree from all V2 attestation UIDs
-    let mut tree = MerkleTree::new(20);
-    let mut target_leaf_idx: Option<usize> = None;
-
-    for att in &attestations {
-        let leaf_data = format!(
-            "{}:{}:{}",
-            att.stealth_address, att.schema_id, att.attestation_uid
-        );
-        let idx = tree.insert_raw(leaf_data.as_bytes());
-        if att.attestation_uid == target_att.attestation_uid && target_leaf_idx.is_none() {
-            target_leaf_idx = Some(idx);
-        }
-    }
-
-    let leaf_idx = target_leaf_idx
-        .ok_or_else(|| JsValue::from_str("Failed to locate target attestation in Merkle tree"))?;
-
-    let proof = tree.proof(leaf_idx);
-
-    // Build the V2 circuit witness JSON (matches circuit signal names exactly)
-    let witness = serde_json::json!({
-        // Private inputs
-        "stealth_pk": stealth_pk_field,
-        "schema_id": target_att.merkle_leaf_preimage.schema_id_field,
-        "issuer_pk_x": target_att.merkle_leaf_preimage.issuer_pk_x,
-        "trait_data_hash": format!("0x{}", trait_data_hash_hex.trim_start_matches("0x")),
-        "nonce": target_att.merkle_leaf_preimage.nonce_field,
-        "merkle_path": proof.path_elements.iter().map(bytes_to_decimal_string).collect::<Vec<_>>(),
-        "merkle_path_indices": proof.path_indices,
-        // Public inputs
-        "merkle_root": bytes_to_decimal_string(&proof.root),
-        "attestation_id": target_att.merkle_leaf_preimage.schema_id_field,
-        "external_nullifier": external_nullifier,
-        // nullifier_hash must be computed by the browser prover:
-        // Poseidon(stealth_pk, external_nullifier) — done in JS with poseidon-lite
-        "nullifier_hash": "__COMPUTE_IN_BROWSER__"
-    });
-
-    serde_json::to_string(&witness)
-        .map_err(|e| JsValue::from_str(&format!("Serialize witness error: {}", e)))
-}
-
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -573,25 +407,3 @@ fn parse_hex32(hex: &str) -> Result<[u8; 32], JsValue> {
     Ok(out)
 }
 
-fn bytes_to_decimal_string(bytes: &[u8; 32]) -> String {
-    let mut val = [0u64; 4];
-    for i in 0..4 {
-        let offset = i * 8;
-        for j in 0..8 {
-            val[3 - i] = (val[3 - i] << 8) | bytes[offset + j] as u64;
-        }
-    }
-    // Simple big-endian to decimal: treat as u256
-    let mut hex_str = String::with_capacity(64);
-    for b in bytes {
-        hex_str.push_str(&format!("{:02x}", b));
-    }
-    // Convert hex to decimal string using u128 pairs
-    let hex_str = hex_str.trim_start_matches('0');
-    if hex_str.is_empty() {
-        return "0".to_string();
-    }
-    // For field elements, use the hex representation as-is for the circuit
-    // (circom accepts both hex and decimal)
-    format!("0x{}", bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>())
-}

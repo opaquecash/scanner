@@ -11,8 +11,12 @@ use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
 
 // =============================================================================
-// Poseidon-compatible hash (simplified for WASM; production should use a
-// proper Poseidon implementation matching circomlib's parameters)
+// ⚠ NOT circuit-compatible. This is domain-tagged Keccak256 reduced into the
+// BN254 scalar field — NOT the Poseidon hash the stealth_reputation circuit
+// constrains. Witnesses built from this tree can never satisfy the circuit;
+// the canonical witness builder is `buildWitnessV2` in @opaquecash/psr-prover
+// (circomlibjs Poseidon). This module remains as a generic Merkle utility for
+// indexing/dedup use cases only.
 // =============================================================================
 
 /// Hash two field elements with a domain-tagged Keccak256 and reduce mod BN254 scalar field.
