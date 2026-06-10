@@ -1,5 +1,7 @@
 # opaque-scanner
 
+[![CI](https://github.com/opaquecash/scanner/actions/workflows/scanner-test.yml/badge.svg)](https://github.com/opaquecash/scanner/actions/workflows/scanner-test.yml)
+
 Stealth-address (DKSAP) scanner for [Opaque Cash](https://opaque.cash) — the shared,
 chain-neutral cryptography core used by the Ethereum and Solana clients. Compiles to
 native Rust **and** WebAssembly, so the same code scans in a browser with no server.
