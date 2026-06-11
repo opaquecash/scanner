@@ -11,6 +11,8 @@ pub mod scanner;
 pub mod attestation;
 pub mod merkle;
 pub mod dksap;
+pub mod adapters;
+pub mod universal;
 
 use scanner::{
     derive_stealth_address, derive_stealth_signing_key, check_announcement,

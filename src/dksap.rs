@@ -7,7 +7,9 @@
 //! the scan loop can be written once.
 //!
 //! This module re-exports the shared core and defines [`ChainAdapter`]. Concrete
-//! adapters (`EthereumAdapter`, `SolanaAdapter`) are not defined here yet.
+//! adapters live in [`crate::adapters`] (`ethereum`, `solana`; JSON-RPC transports
+//! behind the `native` feature), and [`crate::universal::UniversalScanner`] runs the
+//! shared dedup + view-tag + DKSAP loop over any set of them.
 
 // Shared, chain-neutral core. Re-exported here so consumers depend on a single
 // `dksap` surface rather than reaching into individual modules.

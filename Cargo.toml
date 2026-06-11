@@ -31,3 +31,12 @@ console_error_panic_hook = "0.1"
 getrandom = { version = "0.2", features = ["js"] }
 js-sys = "0.3"
 hex = "0.4"
+base64 = "0.22"
+# JSON-RPC transport for the native (non-WASM) adapters; see the `native` feature.
+ureq = { version = "2.12", features = ["json"], optional = true }
+
+[features]
+# Enables EthereumAdapter / SolanaAdapter JSON-RPC transports (event decoders and
+# the UniversalScanner are always available). Off by default so the WASM build
+# (wasm-pack --target web) stays HTTP-free.
+native = ["dep:ureq"]
