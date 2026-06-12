@@ -198,6 +198,9 @@ pub struct V2StealthAttestation {
     pub tx_hash: String,
     /// Slot (block) when the announcement was observed
     pub slot: u64,
+    /// Compressed ephemeral secp256k1 pubkey bytes from the announcement.
+    /// Required by clients to reconstruct the one-time stealth signing key.
+    pub ephemeral_pubkey: Vec<u8>,
     /// Whether the attestation is currently valid (not revoked, not expired).
     /// Set to true at scan time; callers should re-validate against chain state.
     pub is_valid: bool,
@@ -388,6 +391,7 @@ pub fn scan_for_attestations_v2(
             merkle_leaf_preimage,
             tx_hash: ann.tx_hash.clone(),
             slot: ann.block_number,
+            ephemeral_pubkey: ann.ephemeral_pubkey.to_sec1_bytes().to_vec(),
             is_valid: true, // caller re-validates against AttestationPDA on chain
             issuer_authorized,
         });
