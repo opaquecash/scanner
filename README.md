@@ -7,8 +7,8 @@ chain-neutral cryptography core used by the Ethereum and Solana clients. Compile
 native Rust **and** WebAssembly, so the same code scans in a browser with no server.
 
 It implements the [EIP-5564](https://eips.ethereum.org/EIPS/eip-5564) Dual-Key Stealth
-Address Protocol over secp256k1, plus the Opaque Programmable Stealth Reputation (PSR)
-attestation layer (V1 and V2). See the protocol spec
+Address Protocol over secp256k1, plus the Opaque Programmable Stealth Reputation (PSR
+V2) attestation layer. See the protocol spec
 [CSAP.md](https://github.com/opaquecash/spec/blob/main/CSAP.md).
 
 ## What it does
@@ -18,11 +18,12 @@ attestation layer (V1 and V2). See the protocol spec
   before any elliptic-curve work.
 - **One-time key recovery** — reconstructs the spendable private key for a matched
   stealth address.
-- **PSR attestations** — V1 attestation-id metadata and V2 schema-bound, issuer-verified
-  traits (`scan_for_attestations`, `scan_for_attestations_v2`).
-- **Merkle witnesses** — builds inclusion proofs for the Circom reputation circuits.
-- **`ChainAdapter` trait** (`dksap` module) — the chain-neutral seam the universal
-  cross-chain scanner is built on; concrete Ethereum/Solana adapters live in the SDK.
+- **PSR attestations** — V2 schema-bound, issuer-verified traits
+  (`scan_for_attestations_v2`). ZK witness building is the TypeScript SDK's job
+  (`@opaquecash/psr-prover`), not this crate's.
+- **Universal cross-chain scanner** — `EthereumAdapter` + `SolanaAdapter` +
+  origin-deduped scan loop behind the `native` cargo feature (decoders are
+  always compiled; JSON-RPC transports stay out of the WASM build).
 
 ## Install
 
