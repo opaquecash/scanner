@@ -67,4 +67,4 @@ and are asserted by `scanner::tests::matches_csap_test_vectors`.
 
 ## License
 
-MIT
+Apache-2.0.
