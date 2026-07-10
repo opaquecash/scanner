@@ -4,9 +4,10 @@
 //! and filters them efficiently using view tags before expensive EC operations.
 
 use alloy_primitives::Address;
+use k256::elliptic_curve::ops::Reduce;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::elliptic_curve::PrimeField;
-use k256::{ecdsa::SigningKey, PublicKey, ProjectivePoint, Scalar};
+use k256::{ecdsa::SigningKey, PublicKey, ProjectivePoint, Scalar, U256};
 use sha3::{Digest, Keccak256};
 
 // =============================================================================
@@ -89,11 +90,15 @@ pub fn derive_stealth_address(
     let s_h = hash_shared_secret(&s);
     // Step 3: view tag (most significant byte)
     let view_tag = view_tag_from_hashed_secret(&s_h);
-    // Step 4: S_h = s_h * G (reduce s_h mod n for curve order)
+    // Step 4: S_h = s_h * G. Reduce s_h modulo the curve order n (rather than
+    // rejecting s_h >= n) so a valid payment is never orphaned — this matches the
+    // CSAP spec and the TS SDK, which both reduce mod n. A zero scalar (s_h ≡ 0)
+    // is still rejected: it would collapse S_h to the point at infinity.
     let repr = k256::FieldBytes::from(s_h);
-    let s_h_scalar = Scalar::from_repr(repr)
-        .into_option()
-        .ok_or(StealthAddressError::InvalidScalar)?;
+    let s_h_scalar = <Scalar as Reduce<U256>>::reduce_bytes(&repr);
+    if bool::from(s_h_scalar.is_zero()) {
+        return Err(StealthAddressError::InvalidScalar);
+    }
     let s_h_point = ProjectivePoint::GENERATOR * s_h_scalar;
     // Step 5: P_stealth = P_spend + S_h
     let spend_affine = spend_pubkey.to_projective();
@@ -126,12 +131,18 @@ pub fn derive_stealth_signing_key(
 ) -> Result<[u8; 32], StealthAddressError> {
     let s = shared_secret_bytes(view_privkey, ephemeral_pubkey);
     let s_h = hash_shared_secret(&s);
+    // Reduce mod n (not reject) so this agrees with derive_stealth_address and the
+    // TS SDK; reject a zero hashed secret and a zero resulting one-time key.
     let repr = k256::FieldBytes::from(s_h);
-    let s_h_scalar = Scalar::from_repr(repr)
-        .into_option()
-        .ok_or(StealthAddressError::InvalidScalar)?;
+    let s_h_scalar = <Scalar as Reduce<U256>>::reduce_bytes(&repr);
+    if bool::from(s_h_scalar.is_zero()) {
+        return Err(StealthAddressError::InvalidScalar);
+    }
     let spend_scalar: &Scalar = spend_privkey.as_nonzero_scalar().as_ref();
     let p_stealth_scalar = spend_scalar + s_h_scalar;
+    if bool::from(p_stealth_scalar.is_zero()) {
+        return Err(StealthAddressError::InvalidScalar);
+    }
     let mut out = [0u8; 32];
     out.copy_from_slice(p_stealth_scalar.to_repr().as_ref());
     Ok(out)
@@ -320,6 +331,37 @@ mod tests {
 
         assert_eq!(addr, addr2);
         assert_eq!(tag, tag2);
+    }
+
+    /// OPQ-025: a hashed secret `s_h >= n` must be *reduced* mod n, not rejected.
+    /// The old `Scalar::from_repr` path returned `None` for any value in `[n, 2^256)`,
+    /// which silently orphaned payments whose ECDH hash exceeded the curve order,
+    /// diverging from the reduce-mod-n senders (CSAP spec + TS SDK). `reduce_bytes`
+    /// accepts those values; this pins the well-defined boundary cases n and n+1.
+    #[test]
+    fn hashed_secret_reduces_mod_n_instead_of_rejecting() {
+        // secp256k1 group order n, big-endian (FieldBytes are big-endian scalars).
+        let n_bytes: [u8; 32] = [
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xfe, 0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c,
+            0xd0, 0x36, 0x41, 0x41,
+        ];
+
+        // The rejected-before path: from_repr yields None for n (out of [0, n)).
+        assert!(
+            bool::from(Scalar::from_repr(k256::FieldBytes::from(n_bytes)).is_none()),
+            "from_repr must reject n (the old orphaning behavior)"
+        );
+
+        // The fixed path: reduce_bytes(n) == 0 mod n.
+        let reduced_n = <Scalar as Reduce<U256>>::reduce_bytes(&k256::FieldBytes::from(n_bytes));
+        assert!(bool::from(reduced_n.is_zero()), "n must reduce to 0 mod n");
+
+        // reduce_bytes(n + 1) == 1 mod n.
+        let mut np1 = n_bytes;
+        np1[31] = np1[31].wrapping_add(1); // 0x41 -> 0x42, i.e. n + 1
+        let reduced_np1 = <Scalar as Reduce<U256>>::reduce_bytes(&k256::FieldBytes::from(np1));
+        assert_eq!(reduced_np1, Scalar::from(1u64), "n + 1 must reduce to 1 mod n");
     }
 
     /// Cross-validation against the canonical CSAP test vectors
