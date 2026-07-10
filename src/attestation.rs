@@ -310,8 +310,13 @@ impl SchemaInfo {
 /// 2. Full stealth address derivation to confirm ownership
 /// 3. Issuer authorization check against the provided schema registry snapshot
 ///
-/// Rogue traits (unregistered schema_id or unauthorized issuer) are logged and skipped.
-/// The caller is responsible for fetching up-to-date `schemas` from the chain.
+/// Rogue traits — an unregistered `schema_id`, an inactive schema, or a trait whose `issuer`
+/// is not the schema authority/delegate — are skipped by default. The announcement layer is
+/// permissionless, so anyone can publish a trait under a real `schema_id` signed by an
+/// unauthorized key; returning those would let forged reputation reach any consumer that
+/// trusts the "filtered" contract (OPQ-011). Set `include_unauthorized` to surface
+/// unauthorized-issuer traits anyway (each carries `issuer_authorized: false`) — for auditing
+/// or a caller that applies its own trust model. The caller fetches up-to-date `schemas`.
 pub fn scan_for_attestations_v2(
     announcements: &[RawAnnouncement],
     view_privkey: &k256::ecdsa::SigningKey,
@@ -319,6 +324,7 @@ pub fn scan_for_attestations_v2(
     schemas: &[SchemaInfo],
     current_slot: u64,
     trusted_issuers: Option<&std::collections::HashSet<String>>,
+    include_unauthorized: bool,
 ) -> Result<Vec<V2StealthAttestation>, crate::scanner::StealthAddressError> {
     use crate::scanner::{check_announcement_view_tag, derive_stealth_address, ViewTagCheck};
 
@@ -358,10 +364,15 @@ pub fn scan_for_attestations_v2(
             continue;
         }
 
-        // Step 6: Validate the issuer is authorized under this schema
+        // Step 6: Validate the issuer is authorized under this schema. A trait self-issued
+        // under a legitimate schema_id by a key the schema never delegated to is dropped
+        // unless the caller explicitly opts in to surfacing it (OPQ-011).
         let issuer_authorized = schema.is_authorized_issuer(&v2.issuer);
+        if !issuer_authorized && !include_unauthorized {
+            continue;
+        }
 
-        // Step 7: Optional user-configured trusted issuer allowlist
+        // Step 7: Optional user-configured trusted issuer allowlist (an additional filter).
         let issuer_hex = hex_encode(&v2.issuer);
         if let Some(trusted) = trusted_issuers {
             if !trusted.contains(&issuer_hex) {
@@ -447,5 +458,74 @@ mod tests {
         let mut data = vec![0x42, 0xFF];
         data.extend_from_slice(&42u64.to_be_bytes());
         assert!(extract_attestation_id(&data).is_none());
+    }
+
+    /// Deterministic (signing, public) keypair from a seed byte.
+    fn keypair(seed: u8) -> (SigningKey, PublicKey) {
+        let bytes = [seed; 32];
+        let signing = SigningKey::from_slice(&bytes).expect("valid scalar");
+        let public = k256::SecretKey::from_slice(&bytes).expect("valid scalar").public_key();
+        (signing, public)
+    }
+
+    /// A rogue trait — a real schema_id self-issued by a key the schema never delegated to —
+    /// is dropped by default and only surfaced (flagged unauthorized) on explicit opt-in (OPQ-011).
+    #[test]
+    fn unauthorized_issuer_traits_filtered_by_default_surfaced_on_opt_in() {
+        let (view_priv, _) = keypair(1);
+        let (_, spend_pub) = keypair(2);
+        let (_, eph_pub) = keypair(3);
+        let schema_id = [5u8; 32];
+        let issuer = [7u8; 32]; // not the schema authority/delegate
+
+        // A crypto-valid announcement addressed to (view, spend): reuse the real derivation so
+        // it passes the view-tag and ownership checks, isolating the issuer-authorization gate.
+        let (addr, view_tag) = derive_stealth_address(&view_priv, &spend_pub, &eph_pub).unwrap();
+        let metadata = encode_v2_attestation_metadata(view_tag, &schema_id, &issuer, &[8u8; 32], &[9u8; 32]);
+        let anns = vec![RawAnnouncement {
+            stealth_address: addr,
+            view_tag,
+            ephemeral_pubkey: eph_pub,
+            metadata,
+            tx_hash: "0xtest".to_string(),
+            block_number: 1,
+        }];
+
+        let unauth = SchemaInfo {
+            schema_id,
+            authority: [1u8; 32], // some other authority, NOT the issuer
+            delegates: vec![],
+            deprecated: false,
+            schema_expiry_slot: 0,
+            name: "test".to_string(),
+        };
+
+        // Default: the rogue-issuer trait is filtered out.
+        let filtered =
+            scan_for_attestations_v2(&anns, &view_priv, &spend_pub, std::slice::from_ref(&unauth), 0, None, false)
+                .unwrap();
+        assert_eq!(filtered.len(), 0, "unauthorized issuer must be dropped by default");
+
+        // Opt-in: surfaced but flagged unauthorized.
+        let surfaced =
+            scan_for_attestations_v2(&anns, &view_priv, &spend_pub, std::slice::from_ref(&unauth), 0, None, true)
+                .unwrap();
+        assert_eq!(surfaced.len(), 1);
+        assert!(!surfaced[0].issuer_authorized);
+
+        // If the schema authorizes the issuer, it is returned by default and flagged authorized.
+        let authorized = SchemaInfo {
+            schema_id,
+            authority: issuer,
+            delegates: vec![],
+            deprecated: false,
+            schema_expiry_slot: 0,
+            name: "test".to_string(),
+        };
+        let ok =
+            scan_for_attestations_v2(&anns, &view_priv, &spend_pub, std::slice::from_ref(&authorized), 0, None, false)
+                .unwrap();
+        assert_eq!(ok.len(), 1);
+        assert!(ok[0].issuer_authorized);
     }
 }

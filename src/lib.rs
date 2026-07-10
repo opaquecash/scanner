@@ -379,6 +379,9 @@ pub fn scan_attestations_v2_wasm(
             Some(list.into_iter().collect())
         };
 
+    // Browser scans always drop unauthorized-issuer traits (include_unauthorized = false):
+    // the announcement layer is permissionless, so surfacing them would let forged reputation
+    // reach any consumer that trusts the documented "filtered" behaviour (OPQ-011).
     let results = scan_for_attestations_v2(
         &announcements,
         &view_privkey,
@@ -386,6 +389,7 @@ pub fn scan_attestations_v2_wasm(
         &schemas,
         current_slot,
         trusted_set.as_ref(),
+        false,
     )
     .map_err(|e| JsValue::from_str(&format!("V2 scan error: {}", e)))?;
 
