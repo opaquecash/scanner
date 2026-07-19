@@ -1,15 +1,18 @@
-//! Universal cross-chain scan over the live deployments (Sepolia + Solana devnet):
+//! Universal cross-chain scan over the live deployments (Sepolia + Solana devnet +
+//! Starknet Sepolia):
 //!
 //! ```sh
 //! cargo run --example universal_scan --features native
 //! ```
 //!
-//! Env overrides: `SEPOLIA_RPC_URL`, `SOLANA_RPC_URL`, `VIEWING_KEY` /
-//! `SPENDING_PUBKEY` (hex; defaults are the CSAP test-vector keys, which own
-//! nothing on-chain — the run demonstrates fetch + decode + filter).
+//! Env overrides: `SEPOLIA_RPC_URL`, `SOLANA_RPC_URL`, `STARKNET_RPC_URL`, `VIEWING_KEY`
+//! / `SPENDING_PUBKEY` (hex; defaults are the CSAP test-vector keys, which own
+//! nothing on-chain — the run demonstrates fetch + decode + filter). One key set scans
+//! all three chains.
 
 use cryptography::adapters::ethereum::EthereumAdapter;
 use cryptography::adapters::solana::SolanaAdapter;
+use cryptography::adapters::starknet::StarknetAdapter;
 use cryptography::universal::{DynChainAdapter, UniversalScanner};
 use k256::ecdsa::SigningKey;
 use k256::PublicKey;
@@ -19,6 +22,11 @@ const SEPOLIA_ANNOUNCER: &str = "0x840f72249A8bF6F10b0eB64412E315efBD730865";
 const SEPOLIA_UAB_RECEIVER: &str = "0x9eF189f7a263F870Cf80f9A89d1349A6AF7b15cF";
 const DEVNET_ANNOUNCER: &str = "HGFn2fH7bVQ5cSuiG52NjzN9m11YrB3FZUfoN9b9A5jf";
 const DEVNET_UAB_RECEIVER: &str = "7d4Sbmmpy954JwSNdjwf31pgbeWUQqwpgNdte5iy3vuM";
+// Starknet has no UAB receiver (Wormhole does not support Starknet); it is a native
+// scan chain. Announcer deployed at block 12158000.
+const STARKNET_ANNOUNCER: &str =
+    "0x003b8258e84e6feec93239b442e6a91f532fda35fed67de4093b1d97150d2aa2";
+const STARKNET_FROM_BLOCK: u64 = 12_158_000;
 
 fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_owned())
@@ -34,6 +42,10 @@ fn key_bytes(env: &str, default: u8) -> Vec<u8> {
 fn main() {
     let eth_rpc = env_or("SEPOLIA_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com");
     let sol_rpc = env_or("SOLANA_RPC_URL", "https://api.devnet.solana.com");
+    let stark_rpc = env_or(
+        "STARKNET_RPC_URL",
+        "https://api.zan.top/public/starknet-sepolia/rpc/v0_10",
+    );
 
     // Recipient keys: viewing private key + spending PUBLIC key (watch-only capable).
     let viewing_key = key_bytes("VIEWING_KEY", 0xAA);
@@ -68,12 +80,14 @@ fn main() {
     let solana = SolanaAdapter::new(&sol_rpc, DEVNET_ANNOUNCER)
         .with_uab_receiver(DEVNET_UAB_RECEIVER)
         .with_limit(25);
+    let starknet = StarknetAdapter::new(&stark_rpc, STARKNET_ANNOUNCER);
 
     // Per-adapter fetch (different cursors), then the shared ownership loop.
     let mut all = Vec::new();
     for (adapter, cursor) in [
         (&ethereum as &dyn DynChainAdapter, eth_cursor),
         (&solana as &dyn DynChainAdapter, 0),
+        (&starknet as &dyn DynChainAdapter, STARKNET_FROM_BLOCK),
     ] {
         match adapter.fetch_announcements_dyn(cursor) {
             Ok(anns) => {

@@ -3,7 +3,7 @@
 [![CI](https://github.com/opaquecash/scanner/actions/workflows/scanner-test.yml/badge.svg)](https://github.com/opaquecash/scanner/actions/workflows/scanner-test.yml)
 
 Stealth-address (DKSAP) scanner for [Opaque Cash](https://opaque.cash) — the shared,
-chain-neutral cryptography core used by the Ethereum and Solana clients. Compiles to
+chain-neutral cryptography core used by the Ethereum, Solana, and Starknet clients. Compiles to
 native Rust **and** WebAssembly, so the same code scans in a browser with no server.
 
 It implements the [EIP-5564](https://eips.ethereum.org/EIPS/eip-5564) Dual-Key Stealth
@@ -22,8 +22,10 @@ V2) attestation layer. See the protocol spec
   (`scan_for_attestations_v2`). ZK witness building is the TypeScript SDK's job
   (`@opaquecash/psr-prover`), not this crate's.
 - **Universal cross-chain scanner** — `EthereumAdapter` + `SolanaAdapter` +
-  origin-deduped scan loop behind the `native` cargo feature (decoders are
-  always compiled; JSON-RPC transports stay out of the WASM build).
+  `StarknetAdapter` + origin-deduped scan loop behind the `native` cargo feature
+  (decoders are always compiled; JSON-RPC transports stay out of the WASM build).
+  One key set scans all three chains; the Starknet decoder is validated against a
+  real on-chain announcer event.
 
 ## Install
 

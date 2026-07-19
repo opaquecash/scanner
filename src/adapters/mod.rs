@@ -10,6 +10,7 @@
 
 pub mod ethereum;
 pub mod solana;
+pub mod starknet;
 
 use crate::dksap::Announcement;
 
